@@ -1,0 +1,266 @@
+/* Flappy: single-agent Flappy Bird-style env. C + raylib. */
+
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+#include "raylib.h"
+
+#define MAX_PIPES 5
+#define OBS_DIM 6
+#define BIRD_X_RATIO 0.2f
+#define PIPE_WIDTH_RATIO 0.15f
+#define BIRD_RADIUS_RATIO 0.03f
+#define GAP_HEIGHT_RATIO 0.28f
+#define PIPE_SPEED_RATIO 0.012f
+#define FLAP_VEL 0.055f
+#define GRAVITY 0.0018f
+#define PIPE_SPACING_RATIO 0.45f
+
+typedef struct {
+    float perf;
+    float score;
+    float episode_return;
+    float episode_length;
+    float n;
+} Log;
+
+typedef struct {
+    float x;
+    float gap_center_y;
+    float gap_height;
+    int scored;
+} Pipe;
+
+typedef struct Client {
+    Texture2D bird;
+    Texture2D pipe;
+} Client;
+
+typedef struct {
+    Log log;
+    float* observations;
+    int* actions;
+    float* rewards;
+    unsigned char* terminals;
+
+    int width;
+    int height;
+    float gravity;
+    float flap_velocity;
+    float pipe_speed;
+    float pipe_spacing;
+    float gap_height;
+    int max_steps;
+
+    float bird_y;
+    float bird_vy;
+    Pipe pipes[MAX_PIPES];
+    int num_pipes;
+    int score;
+    int step_count;
+    Client* client;
+} Flappy;
+
+static void add_log(Flappy* env) {
+    env->log.perf = env->score > 0 ? 1.0f : 0.0f;
+    env->log.score = (float)env->score;
+    env->log.episode_return += env->rewards[0];
+    env->log.episode_length = (float)env->step_count;
+    env->log.n += 1.0f;
+}
+
+void init(Flappy* env) {
+    env->gravity = GRAVITY;
+    env->flap_velocity = FLAP_VEL;
+    env->pipe_speed = (float)env->width * PIPE_SPEED_RATIO;
+    env->pipe_spacing = PIPE_SPACING_RATIO;
+    env->gap_height = GAP_HEIGHT_RATIO;
+    if (env->max_steps <= 0) env->max_steps = 5000;
+}
+
+static float clampf(float v, float lo, float hi) {
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
+}
+
+static void spawn_pipe(Flappy* env, int idx) {
+    env->pipes[idx].x = (float)env->width;
+    env->pipes[idx].gap_center_y = 0.25f + (float)(rand() % 50) / 100.0f;
+    env->pipes[idx].gap_height = env->gap_height;
+    env->pipes[idx].scored = 0;
+}
+
+void compute_observations(Flappy* env) {
+    float* o = env->observations;
+    o[0] = clampf(env->bird_y, 0.0f, 1.0f);
+    o[1] = clampf(env->bird_vy / 0.1f, -1.0f, 1.0f);
+    float bird_x = env->width * BIRD_X_RATIO;
+    int next = -1;
+    float dist_norm = 1.0f;
+    float gap_center = 0.5f;
+    float gap_h = env->gap_height;
+    for (int i = 0; i < env->num_pipes; i++) {
+        if (env->pipes[i].x + env->width * PIPE_WIDTH_RATIO > bird_x) {
+            next = i;
+            break;
+        }
+    }
+    if (next >= 0) {
+        float dx = env->pipes[next].x - bird_x;
+        dist_norm = clampf(dx / (float)env->width, 0.0f, 1.0f);
+        gap_center = env->pipes[next].gap_center_y;
+        gap_h = env->pipes[next].gap_height;
+    }
+    o[2] = dist_norm;
+    o[3] = gap_center;
+    o[4] = gap_h;
+    o[5] = (next >= 0) ? 1.0f : 0.0f;
+}
+
+static int collides(Flappy* env, float bx, float by, float br) {
+    float pw = env->width * PIPE_WIDTH_RATIO;
+    float ph_top = env->height * 2.0f;
+    for (int i = 0; i < env->num_pipes; i++) {
+        float px = env->pipes[i].x;
+        if (px + pw < bx - br || px > bx + br) continue;
+        float gap_c = env->pipes[i].gap_center_y * (float)env->height;
+        float gap_h = env->pipes[i].gap_height * (float)env->height;
+        float top_bottom = gap_c - gap_h * 0.5f;
+        float bottom_top = gap_c + gap_h * 0.5f;
+        if (by - br < top_bottom || by + br > bottom_top)
+            return 1;
+    }
+    return 0;
+}
+
+void c_reset(Flappy* env) {
+    env->bird_y = 0.5f;
+    env->bird_vy = 0.0f;
+    env->score = 0;
+    env->step_count = 0;
+    env->num_pipes = 3;
+    float start_x = (float)env->width * 0.8f;
+    for (int i = 0; i < env->num_pipes; i++) {
+        env->pipes[i].x = start_x + (float)i * env->width * env->pipe_spacing;
+        env->pipes[i].gap_center_y = 0.25f + (float)(rand() % 50) / 100.0f;
+        env->pipes[i].gap_height = env->gap_height;
+        env->pipes[i].scored = 0;
+    }
+    compute_observations(env);
+}
+
+void c_step(Flappy* env) {
+    env->rewards[0] = 0.0f;
+    env->terminals[0] = 0;
+    env->step_count++;
+
+    int a = env->actions[0];
+    if (a == 1)
+        env->bird_vy = env->flap_velocity;
+    env->bird_vy -= env->gravity;
+    env->bird_y += env->bird_vy;
+    env->bird_y = clampf(env->bird_y, 0.0f, 1.0f);
+
+    float by_px = env->bird_y * (float)env->height;
+    float bx_px = (float)env->width * BIRD_X_RATIO;
+    float br = (float)env->height * BIRD_RADIUS_RATIO;
+    if (by_px - br <= 0.0f || by_px + br >= (float)env->height) {
+        env->rewards[0] = -1.0f;
+        env->terminals[0] = 1;
+        add_log(env);
+        c_reset(env);
+        return;
+    }
+    if (collides(env, bx_px, by_px, br)) {
+        env->rewards[0] = -1.0f;
+        env->terminals[0] = 1;
+        add_log(env);
+        c_reset(env);
+        return;
+    }
+
+    float pw = env->width * PIPE_WIDTH_RATIO;
+    for (int i = 0; i < env->num_pipes; i++) {
+        if (!env->pipes[i].scored && env->pipes[i].x + pw < bx_px) {
+            env->pipes[i].scored = 1;
+            env->score++;
+            env->rewards[0] += 1.0f;
+        }
+    }
+
+    for (int i = 0; i < env->num_pipes; i++)
+        env->pipes[i].x -= env->pipe_speed;
+
+    int leftmost = 0;
+    for (int i = 1; i < env->num_pipes; i++)
+        if (env->pipes[i].x < env->pipes[leftmost].x) leftmost = i;
+    if (env->pipes[leftmost].x + pw < 0) {
+        float rightmost = env->pipes[0].x;
+        for (int i = 1; i < env->num_pipes; i++)
+            if (env->pipes[i].x > rightmost) rightmost = env->pipes[i].x;
+        env->pipes[leftmost].x = rightmost + (float)env->width * env->pipe_spacing;
+        spawn_pipe(env, leftmost);
+    }
+
+    if (env->step_count >= env->max_steps) {
+        env->terminals[0] = 1;
+        add_log(env);
+        c_reset(env);
+        return;
+    }
+    compute_observations(env);
+}
+
+void c_render(Flappy* env) {
+    if (env->client == NULL) {
+        env->client = (Client*)calloc(1, sizeof(Client));
+        InitWindow(env->width, env->height, "Flappy");
+        SetTargetFPS(60);
+        env->client->bird = LoadTexture("resources/flappy/bird.png");
+        env->client->pipe = LoadTexture("resources/flappy/pipe.png");
+    }
+    if (IsKeyDown(KEY_ESCAPE)) exit(0);
+
+    Client* c = env->client;
+    BeginDrawing();
+    ClearBackground((Color){113, 197, 207, 255});
+
+    float pw = (float)env->width * PIPE_WIDTH_RATIO;
+    float gap_c, gap_h, top_bottom, bottom_top;
+    for (int i = 0; i < env->num_pipes; i++) {
+        gap_c = env->pipes[i].gap_center_y * (float)env->height;
+        gap_h = env->pipes[i].gap_height * (float)env->height;
+        top_bottom = gap_c - gap_h * 0.5f;
+        bottom_top = gap_c + gap_h * 0.5f;
+        DrawTexturePro(c->pipe,
+            (Rectangle){0, 0, (float)c->pipe.width, (float)c->pipe.height},
+            (Rectangle){env->pipes[i].x, 0, pw, top_bottom},
+            (Vector2){0, 0}, 0, WHITE);
+        DrawTexturePro(c->pipe,
+            (Rectangle){0, 0, (float)c->pipe.width, (float)c->pipe.height},
+            (Rectangle){env->pipes[i].x, bottom_top, pw, (float)env->height - bottom_top},
+            (Vector2){0, 0}, 0, WHITE);
+    }
+
+    float by = env->bird_y * (float)env->height;
+    float bx = (float)env->width * BIRD_X_RATIO;
+    float br = (float)env->height * BIRD_RADIUS_RATIO * 2.0f;
+    DrawTexturePro(c->bird,
+        (Rectangle){0, 0, (float)c->bird.width, (float)c->bird.height},
+        (Rectangle){bx - br, by - br, br * 2, br * 2},
+        (Vector2){br, br}, 0, WHITE);
+
+    DrawText(TextFormat("Score: %d", env->score), 10, 10, 20, DARKGRAY);
+    EndDrawing();
+}
+
+void c_close(Flappy* env) {
+    if (env->client) {
+        UnloadTexture(env->client->bird);
+        UnloadTexture(env->client->pipe);
+        CloseWindow();
+        free(env->client);
+        env->client = NULL;
+    }
+}
