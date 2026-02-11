@@ -1,14 +1,14 @@
 """
 Run Flappy with a random policy and rendering (like PufferLib eval).
 Run from repo root so C code finds resources/flappy/:
-  uv run python -m curly_succotash.flappy.run_random_render
+  uv run python -m flappy_rl.flappy.run_random_render
 Press ESC in the game window to exit.
 """
 import time
 import numpy as np
 import pufferlib.vector
 
-from curly_succotash.flappy import flappy_env_creator
+from flappy_rl.flappy import flappy_env_creator
 
 FPS = 60
 

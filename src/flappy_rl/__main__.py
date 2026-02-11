@@ -1,4 +1,4 @@
-"""Run the env demo. Use: uv run python -m curly_succotash"""
+"""Run the env demo. Use: uv run python -m flappy_rl"""
 
 import warnings
 
@@ -7,7 +7,7 @@ warnings.filterwarnings("ignore", message=".*Gym has been unmaintained.*")
 
 
 def _run_demo():
-    from curly_succotash.env import SamplePufferEnv, make_gymnasium_env
+    from flappy_rl.env import SamplePufferEnv, make_gymnasium_env
 
     print("=== Gymnasium wrapper ===")
     env = make_gymnasium_env()

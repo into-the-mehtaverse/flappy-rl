@@ -2,8 +2,8 @@
 Sweep over learning rate and clip_coef to see when the policy becomes deterministic (entropy → 0).
 
 Usage:
-  uv run python -m curly_succotash.sweep
-  uv run python -m curly_succotash.sweep --sweep.steps 1000000   # longer per run
+  uv run python -m flappy_rl.sweep
+  uv run python -m flappy_rl.sweep --sweep.steps 1000000   # longer per run
 """
 
 import copy
@@ -17,8 +17,8 @@ import pufferlib
 import pufferlib.vector
 from pufferlib import pufferl
 
-from curly_succotash.env import flappy_grid_env_creator
-from curly_succotash.train import FlappyGridPolicy
+from flappy_rl.env import flappy_grid_env_creator
+from flappy_rl.train import FlappyGridPolicy
 
 
 # Grid: at which (lr, clip_coef) does entropy go to ~0?

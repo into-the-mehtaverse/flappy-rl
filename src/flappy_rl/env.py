@@ -170,5 +170,5 @@ class SamplePufferEnv(pufferlib.PufferEnv):
         return self.observations, self.rewards, self.terminals, self.truncations, infos
 
 
-# Run demo via: uv run python -m curly_succotash
+# Run demo via: uv run python -m flappy_rl
 # (Running this file as __main__ can trigger a double-import warning.)

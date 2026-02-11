@@ -1,6 +1,6 @@
 # Writing an RL env for PufferLib
 
-Instructions below are based on the [PufferLib docs](https://puffer.ai/docs.html). This repo is set up as a **uv** project with `pufferlib` and `gymnasium`; run **`uv sync`** in the repo root to install (from your terminal; the IDE may not have write access to uv’s cache).
+Instructions below are based on the [PufferLib docs](https://puffer.ai/docs.html). This repo is set up as a **uv** project with `pufferlib` and `gymnasium`; run **`uv sync`** in the repo root to install (from your terminal; the IDE may not have write access to uv's cache).
 
 ---
 
@@ -9,12 +9,12 @@ Instructions below are based on the [PufferLib docs](https://puffer.ai/docs.html
 ### 1. Gymnasium (or PettingZoo) + emulation wrapper — easiest
 
 - Implement a normal **Gymnasium** (or **PettingZoo**) env.
-- Wrap it in one line with PufferLib’s emulation layer:
+- Wrap it in one line with PufferLib's emulation layer:
   - **Single-agent:** `pufferlib.emulation.GymnasiumPufferEnv(your_gymnasium_env)`
   - **Multi-agent:** `pufferlib.emulation.PettingZooPufferEnv(your_pettingzoo_env)`
-- PufferLib flattens observation/action spaces and handles padding so the same vectorization and training code works. You don’t manage batching or structured buffers yourself.
+- PufferLib flattens observation/action spaces and handles padding so the same vectorization and training code works. You don't manage batching or structured buffers yourself.
 
-**Example in this repo:** `src/curly_succotash/env.py` — `SampleGymnasiumEnv` + `make_gymnasium_env()`.
+**Example in this repo:** `src/flappy_rl/env.py` — `SampleGymnasiumEnv` + `make_gymnasium_env()`.
 
 ### 2. Native PufferEnv — vector-friendly, best throughput
 
@@ -24,31 +24,31 @@ Instructions below are based on the [PufferLib docs](https://puffer.ai/docs.html
   - **`single_observation_space`** and **`single_action_space`** (Gymnasium spaces for one agent).
   - **`num_agents`** (e.g. 1 for single-agent).
 - Implement **`reset(seed=0)`** → return `(observations, infos)` and **`step(action)`** → return `(observations, rewards, terminals, truncations, infos)`. All arrays are batched; use in-place updates (e.g. `self.observations[:] = ...`) and avoid allocating new arrays each step.
-- **Important:** Calling `step` again overwrites the previous step’s data; the trainer/vectorizer expects this.
+- **Important:** Calling `step` again overwrites the previous step's data; the trainer/vectorizer expects this.
 
-**Example in this repo:** `src/curly_succotash/env.py` — `SamplePufferEnv`.
+**Example in this repo:** `src/flappy_rl/env.py` — `SamplePufferEnv`.
 
-For a **pure Python** reference that stays close to this API (single-agent, in-place buf), see PufferLib’s [pysquared](https://github.com/PufferAI/PufferLib/blob/3.0/pufferlib/ocean/pysquared/pysquared.py). For **C + Python binding** and much higher steps/second, see the [Squared](https://github.com/PufferAI/PufferLib/tree/3.0/pufferlib/ocean/squared) tutorial in the docs.
+For a **pure Python** reference that stays close to this API (single-agent, in-place buf), see PufferLib's [pysquared](https://github.com/PufferAI/PufferLib/blob/3.0/pufferlib/ocean/pysquared/pysquared.py). For **C + Python binding** and much higher steps/second, see the [Squared](https://github.com/PufferAI/PufferLib/tree/3.0/pufferlib/ocean/squared) tutorial in the docs.
 
 ---
 
 ## Checklist for native PufferEnv (from PufferLib docs)
 
 - **Spaces and dtypes:** Python `observation_space` / `action_space` (and buffer shapes/dtypes) must match what you write in C/Python (zero or wrong obs/actions is a common bug).
-- **Resets:** Env should handle resets internally; for envs that don’t “end,” consider respawning agents (e.g. after 500 steps without reward).
-- **Zeroing:** At the start of each step, zero `rewards`, `terminals` (and any observation slots you don’t fully overwrite). Otherwise values from the previous step leak through.
+- **Resets:** Env should handle resets internally; for envs that don't "end," consider respawning agents (e.g. after 500 steps without reward).
+- **Zeroing:** At the start of each step, zero `rewards`, `terminals` (and any observation slots you don't fully overwrite). Otherwise values from the previous step leak through.
 - **Scale:** Observations and rewards roughly in **[-1, 1]** tend to behave better.
 - **Binding (C envs):** If you add a C backend, the binding must pass the same init args as your C code and call your C init.
 
-**Detailed explanation of each item:** see **`ENV_CHECKLIST_EXPLAINED.md`** in this repo.
+**Detailed explanation of each item:** see [env-checklist.md](env-checklist.md).
 
 ---
 
-## How to use the API and what it’s for
+## How to use the API and what it's for
 
 ### Emulation (`pufferlib.emulation`)
 
-- **Purpose:** Let existing Gymnasium/PettingZoo envs work with PufferLib’s vectorization and training without rewriting them.
+- **Purpose:** Let existing Gymnasium/PettingZoo envs work with PufferLib's vectorization and training without rewriting them.
 - **What it does:** Wraps your env so that:
   - Observation and action spaces are **flattened** for storage and batching.
   - Unflattening happens at the policy (e.g. PyTorch) so you can still use structured spaces there.
@@ -63,7 +63,7 @@ For a **pure Python** reference that stays close to this API (single-agent, in-p
     Builds a vectorized env. You pass an env **creator** (e.g. a function that returns your PufferEnv or wrapped Gymnasium env).
   - **Sync:** `vecenv.reset()`, `vecenv.step(actions)`.
   - **Async (EnvPool-style):** `vecenv.async_reset(seed=None)`, `vecenv.send(actions)`, `vecenv.recv()` — more envs than batch size, return batches as soon as ready.
-- **When to use:** Always when training; PufferLib’s multiprocessing backend is optimized (shared memory, fewer copies, optional async). Use **Serial** backend for debugging.
+- **When to use:** Always when training; PufferLib's multiprocessing backend is optimized (shared memory, fewer copies, optional async). Use **Serial** backend for debugging.
 
 ### PuffeRL (training)
 
@@ -85,7 +85,7 @@ For a **pure Python** reference that stays close to this API (single-agent, in-p
 - **`puffer sweep <env_name> [OPTIONS]`** — hyperparameter sweeps (e.g. with `--wandb` or `--neptune`).
 - Override config: `--train.device cuda`, `--train.learning-rate 0.001`, `--env.*`, `--vec.*`, etc.
 
-To expose your **own** env to this CLI (like Ocean envs), you’d register it and add a config (see PufferLib’s Ocean “template” and `pufferlib/config/ocean` in the repo). For a first env, using **`pufferlib.vector.make`** and **`pufferl.PuffeRL`** (or **`pufferl.train`** with a custom env name/loader) in your own script is enough.
+To expose your **own** env to this CLI (like Ocean envs), you'd register it and add a config (see PufferLib's Ocean "template" and `pufferlib/config/ocean` in the repo). For a first env, using **`pufferlib.vector.make`** and **`pufferl.PuffeRL`** (or **`pufferl.train`** with a custom env name/loader) in your own script is enough.
 
 ---
 
@@ -99,7 +99,7 @@ To expose your **own** env to this CLI (like Ocean envs), you’d register it an
 You can run the demo in this repo with:
 
 ```bash
-uv run python -m curly_succotash.env
+uv run python -m flappy_rl
 ```
 
-(or `uv run python src/curly_succotash/env.py` if not installed in editable mode).
+(or `uv run python src/flappy_rl/env.py` if not installed in editable mode).

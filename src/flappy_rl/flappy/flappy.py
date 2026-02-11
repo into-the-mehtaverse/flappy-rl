@@ -4,7 +4,7 @@ import gymnasium
 import numpy as np
 import pufferlib
 
-from curly_succotash.flappy import binding
+from flappy_rl.flappy import binding
 
 OBS_DIM = 9
 
@@ -33,7 +33,7 @@ class Flappy(pufferlib.PufferEnv):
         if binding is None:
             raise ImportError(
                 "Flappy C extension not loaded. Build it from the flappy directory: "
-                "cd src/curly_succotash/flappy && make"
+                "cd src/flappy_rl/flappy && make"
             )
         super().__init__(buf)
         self.c_envs = binding.vec_init(

@@ -2,9 +2,9 @@
 Train an agent on FlappyGridEnv or Flappy (C+raylib) with PufferLib's PuffeRL.
 
 Usage:
-  uv run python -m curly_succotash.train
-  uv run python -m curly_succotash.train --train.env flappy
-  uv run python -m curly_succotash.train --train.device cuda --train.total_timesteps 1000000
+  uv run python -m flappy_rl.train
+  uv run python -m flappy_rl.train --train.env flappy
+  uv run python -m flappy_rl.train --train.device cuda --train.total_timesteps 1000000
 """
 
 import argparse
@@ -13,7 +13,7 @@ import pufferlib
 import pufferlib.vector
 from pufferlib import pufferl
 
-from curly_succotash.env import flappy_grid_env_creator, FlappyGridEnv
+from flappy_rl.env import flappy_grid_env_creator, FlappyGridEnv
 
 
 class FlappyGridPolicy(torch.nn.Module):
@@ -97,7 +97,7 @@ def main():
         vec_kwargs["num_envs"] = 128
 
     if env_name == "flappy":
-        from curly_succotash.flappy import flappy_env_creator
+        from flappy_rl.flappy import flappy_env_creator
 
         # One Flappy(num_envs=1) per vector slot; pass the function (picklable), not its return value
         vecenv = pufferlib.vector.make(

@@ -10,7 +10,7 @@ Flappy Bird-style environment implemented in C with raylib rendering. Uses Puffe
 
 2. **Build the C extension** from the project root:
    ```bash
-   cd src/curly_succotash/flappy
+   cd src/flappy_rl/flappy
    make PYTHON=../../../.venv/bin/python
    ```
    Or from the `flappy` directory with a custom Python:
@@ -29,22 +29,22 @@ Place `bird.png` and `pipe.png` in `resources/flappy/` (relative to the process 
 
 ## Train / eval
 
-- Train (from project root): `uv run python -m curly_succotash.train --train.env flappy`
-- Eval with render: run a small script that creates `Flappy(num_envs=1)`, calls `reset()`, then in a loop `step(actions)` and `render()`.
+From project root:
 
-
-uv run python -m curly_succotash.train --train.env flappy
-uv run python -m curly_succotash.train --train.env flappy --train.total-timesteps 10000000
+- **Train:** `uv run python -m flappy_rl.train --train.env flappy`  
+  Optional: `--train.total-timesteps 10000000`, `--train.load-checkpoint path/model.pt`
+- **Eval with render:** `uv run python -m flappy_rl.run_eval_flappy --model path/to/model.pt`
+- **Eval headless (stats):** `uv run python -m flappy_rl.run_eval_flappy --model path/to/model.pt --episodes 50 --no-render`
 
 ## Eval (watch the trained bird)
 
 **Latest eval checkpoint:** `experiments/177077412473/model_002441.pt` (fine-tuned, random gaps, ~655 episode length)
 
 ```bash
-uv run python -m curly_succotash.run_eval_flappy --model experiments/177077412473/model_002441.pt
+uv run python -m flappy_rl.run_eval_flappy --model experiments/177077412473/model_002441.pt
 ```
 
-Or use latest in experiments: `uv run python -m curly_succotash.run_eval_flappy` (no `--model` = picks newest `model_*.pt`)
+Or use latest in experiments: `uv run python -m flappy_rl.run_eval_flappy` (no `--model` = picks newest `model_*.pt`)
 
 ## Fine-tune from fixed-gap checkpoint (random gaps)
 
@@ -53,10 +53,11 @@ Latest checkpoint (fixed-gap run): `experiments/177077321939/model_001220.pt`
 
 ```bash
 # Rebuild after changing FIXED_GAP_DEBUG in flappy.h
-cd src/curly_succotash/flappy && make clean && make && cd ../../..
+cd src/flappy_rl/flappy && make clean && make && cd ../../..
 
-# Fine-tune from fixed-gap checkpoint (random gaps)
-uv run python -m curly_succotash.train --train.env flappy --train.load-checkpoint experiments/177077321939/model_001220.pt // good policy
-uv run python -m curly_succotash.train --train.env flappy --train.load-checkpoint experiments/177077412473/model_002441.pt // very good policy, 655 ep length
-uv run python -m curly_succotash.train --train.env flappy --train.load-checkpoint experiments/177077598031/model_002441.pt // another good policy, fine tuned on above with smaller lr 685 ep length
+# Fine-tune from a checkpoint (random gaps)
+uv run python -m flappy_rl.train --train.env flappy --train.load-checkpoint experiments/177077321939/model_001220.pt   # fixed-gap
+uv run python -m flappy_rl.train --train.env flappy --train.load-checkpoint experiments/177077412473/model_002441.pt   # ~655 ep length
+uv run python -m flappy_rl.train --train.env flappy --train.load-checkpoint experiments/177077598031/model_002441.pt   # ~684 ep, smaller LR
+uv run python -m flappy_rl.train --train.env flappy --train.load-checkpoint experiments/177078209826/model_002441.pt   # biased fine-tune
 ```
