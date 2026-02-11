@@ -13,7 +13,7 @@ import pufferlib
 import pufferlib.vector
 from pufferlib import pufferl
 
-from flappy_rl.env import flappy_grid_env_creator, FlappyGridEnv
+from flappy_rl.env import flappy_grid_env_creator
 
 
 class FlappyGridPolicy(torch.nn.Module):
