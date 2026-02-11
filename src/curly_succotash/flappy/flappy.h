@@ -101,17 +101,20 @@ void compute_observations(Flappy* env) {
     float* o = env->observations;
     o[0] = clampf(env->bird_y, 0.0f, 1.0f);
     o[1] = clampf(env->bird_vy / 0.1f, -1.0f, 1.0f);
-    float bird_x = env->width * BIRD_X_RATIO;
+    float bird_x = (float)env->width * BIRD_X_RATIO;
+    float pw = (float)env->width * PIPE_WIDTH_RATIO;
+    /* next = pipe in front of bird that is closest (leftmost in front), not first in array order (array order changes after recycling) */
     int next = -1;
+    float best_x = 1e9f;
+    for (int i = 0; i < env->num_pipes; i++) {
+        if (env->pipes[i].x + pw > bird_x && env->pipes[i].x < best_x) {
+            best_x = env->pipes[i].x;
+            next = i;
+        }
+    }
     float dist_norm = 1.0f;
     float gap_center = 0.5f;
     float gap_h = env->gap_height;
-    for (int i = 0; i < env->num_pipes; i++) {
-        if (env->pipes[i].x + env->width * PIPE_WIDTH_RATIO > bird_x) {
-            next = i;
-            break;
-        }
-    }
     if (next >= 0) {
         float dx = env->pipes[next].x - bird_x;
         dist_norm = clampf(dx / (float)env->width, 0.0f, 1.0f);
@@ -166,7 +169,8 @@ void c_reset(Flappy* env) {
     env->score = 0;
     env->step_count = 0;
     env->num_pipes = 3;
-    float start_x = (float)env->width * 0.8f;
+    /* first pipe at half the previous distance so agent learns to react quickly (like between pipes) */
+    float start_x = (float)env->width * 0.5f;  /* was 0.8: bird at 0.2, so distance 0.6→0.3 */
     for (int i = 0; i < env->num_pipes; i++) {
         env->pipes[i].x = start_x + (float)i * env->width * env->pipe_spacing;
         env->pipes[i].gap_center_y = 0.25f + (float)(rand() % 50) / 100.0f;
@@ -239,10 +243,11 @@ void c_step(Flappy* env) {
     {
         float bird_x = (float)env->width * BIRD_X_RATIO;
         int next = -1;
+        float best_x = 1e9f;
         for (int i = 0; i < env->num_pipes; i++) {
-            if (env->pipes[i].x + pw > bird_x) {
+            if (env->pipes[i].x + pw > bird_x && env->pipes[i].x < best_x) {
+                best_x = env->pipes[i].x;
                 next = i;
-                break;
             }
         }
         if (next >= 0) {

@@ -36,4 +36,4 @@ Place `bird.png` and `pipe.png` in `resources/flappy/` (relative to the process 
 uv run python -m curly_succotash.train --train.env flappy
 uv run python -m curly_succotash.run_eval_flappy
 
-uv run python -m curly_succotash.train --train.env flappy --train.total-timesteps 15000000
+uv run python -m curly_succotash.train --train.env flappy --train.total-timesteps 50000000
