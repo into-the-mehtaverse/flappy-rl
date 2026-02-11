@@ -9,8 +9,10 @@
 #define OBS_DIM 9
 #define BIRD_X_RATIO 0.2f
 #define PIPE_WIDTH_RATIO 0.15f
-#define BIRD_RADIUS_RATIO 0.03f
+#define BIRD_RADIUS_RATIO 0.025f  /* was 0.03; smaller = more margin through gap */
 #define GAP_HEIGHT_RATIO 0.28f
+#define FIXED_GAP_DEBUG 0       /* 1 = all gaps at same height (debug); 0 = random gap center 0.25–0.75 */
+#define FIXED_GAP_CENTER_Y 0.5f
 #define PIPE_SPEED_RATIO 0.006f  /* slower pipes so bird has more time to align; was 0.012 */
 #define FLAP_VEL 0.02f   /* upward velocity per flap; lower = finer control, less overshoot */
 #define GRAVITY 0.0018f
@@ -90,9 +92,13 @@ static float clampf(float v, float lo, float hi) {
     return v;
 }
 
+/* Only sets gap and scored; caller sets x (recycle uses rightmost+spacing, reset sets start_x+i*spacing) */
 static void spawn_pipe(Flappy* env, int idx) {
-    env->pipes[idx].x = (float)env->width;
+#if FIXED_GAP_DEBUG
+    env->pipes[idx].gap_center_y = FIXED_GAP_CENTER_Y;
+#else
     env->pipes[idx].gap_center_y = 0.25f + (float)(rand() % 50) / 100.0f;
+#endif
     env->pipes[idx].gap_height = env->gap_height;
     env->pipes[idx].scored = 0;
 }
@@ -173,7 +179,11 @@ void c_reset(Flappy* env) {
     float start_x = (float)env->width * 0.5f;  /* was 0.8: bird at 0.2, so distance 0.6→0.3 */
     for (int i = 0; i < env->num_pipes; i++) {
         env->pipes[i].x = start_x + (float)i * env->width * env->pipe_spacing;
+#if FIXED_GAP_DEBUG
+        env->pipes[i].gap_center_y = FIXED_GAP_CENTER_Y;
+#else
         env->pipes[i].gap_center_y = 0.25f + (float)(rand() % 50) / 100.0f;
+#endif
         env->pipes[i].gap_height = env->gap_height;
         env->pipes[i].scored = 0;
     }

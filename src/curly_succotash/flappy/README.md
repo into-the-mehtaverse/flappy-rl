@@ -36,4 +36,17 @@ Place `bird.png` and `pipe.png` in `resources/flappy/` (relative to the process 
 uv run python -m curly_succotash.train --train.env flappy
 uv run python -m curly_succotash.run_eval_flappy
 
-uv run python -m curly_succotash.train --train.env flappy --train.total-timesteps 50000000
+uv run python -m curly_succotash.train --train.env flappy --train.total-timesteps 10000000
+
+## Fine-tune from fixed-gap checkpoint (random gaps)
+
+Find latest checkpoint: `ls -t experiments/*/model_*.pt 2>/dev/null | head -1`
+Latest checkpoint (fixed-gap run): `experiments/177077321939/model_001220.pt`
+
+```bash
+# Rebuild after changing FIXED_GAP_DEBUG in flappy.h
+cd src/curly_succotash/flappy && make clean && make && cd ../../..
+
+# Fine-tune from fixed-gap checkpoint (random gaps)
+uv run python -m curly_succotash.train --train.env flappy --train.load-checkpoint experiments/177077321939/model_001220.pt
+```

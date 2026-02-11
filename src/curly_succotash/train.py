@@ -52,6 +52,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--train.env", default="flappy_grid", dest="train_env")
     parser.add_argument("--train.total-timesteps", type=int, default=None, dest="train_total_timesteps")
+    parser.add_argument("--train.load-checkpoint", type=str, default=None, dest="train_load_checkpoint")
     known, _ = parser.parse_known_args()
     env_name = known.train_env
     total_timesteps_override = known.train_total_timesteps
@@ -65,15 +66,21 @@ def main():
         del sys.argv[i]
         if i < len(sys.argv):
             del sys.argv[i]  # value
+    if "--train.load-checkpoint" in sys.argv:
+        i = sys.argv.index("--train.load-checkpoint")
+        del sys.argv[i]
+        if i < len(sys.argv):
+            del sys.argv[i]  # value
 
     # Load default PufferLib config (train + vec sections)
     args = pufferl.load_config("default")
     args["train"]["env"] = env_name
     args["train"]["total_timesteps"] = total_timesteps_override if total_timesteps_override is not None else 5_000_000
     args["train"]["optimizer"] = "adam"
-    args["train"]["learning_rate"] = 0.02
-    args["train"]["clip_coef"] = 0.5
-    args["train"]["ent_coef"] = 0.2
+    # Tuned for Flappy (and fine-tuning): lower LR and standard clip to avoid collapse
+    args["train"]["learning_rate"] = 3e-4
+    args["train"]["clip_coef"] = 0.2
+    args["train"]["ent_coef"] = 0.01
     if not torch.cuda.is_available():
         args["train"]["device"] = "cpu"
 
@@ -98,6 +105,12 @@ def main():
             **vec_kwargs,
         )
     policy = FlappyGridPolicy(vecenv.driver_env).to(args["train"]["device"])
+
+    load_checkpoint = getattr(known, "train_load_checkpoint", None)
+    if load_checkpoint:
+        state_dict = torch.load(load_checkpoint, map_location=args["train"]["device"])
+        policy.load_state_dict(state_dict, strict=True)
+        print(f"Loaded policy from {load_checkpoint} (fine-tuning)")
 
     trainer = pufferl.PuffeRL(args["train"], vecenv, policy)
 
