@@ -2,13 +2,18 @@
 
 Flappy Bird RL env for [PufferLib](https://puffer.ai): high-throughput reinforcement learning (millions of steps/second).
 
+## Recommended workflow (use this)
+
+For current results, use the curriculum setup in `variations/flappy/` for training and eval.
+The best checkpoints in this repo were produced with this path, not the base `src/flappy_rl/flappy/` setup.
+
 ## Quick start
 
 ```bash
 uv sync
-uv run python -m flappy_rl                         # run env demo (mock envs)
-uv run python -m flappy_rl.train                   # train on Flappy Grid (2-row)
-uv run python -m flappy_rl.train --train.env flappy # train on Flappy (C + raylib)
+uv run python -m flappy_rl.train --train.env flappy_curriculum --train.total-timesteps 150000000
+uv run python -m variations.flappy.run_eval --model experiments/177087020156/model_018310.pt --episodes 50 --no-render
+uv run python -m variations.flappy.eval_last_checkpoints --run-id 177087020156 --last 5 --episodes 50 --difficulty 1.0
 ```
 
 ## Setup
@@ -16,6 +21,19 @@ uv run python -m flappy_rl.train --train.env flappy # train on Flappy (C + rayli
 **Requires:** Python 3.10+, [uv](https://docs.astral.sh/uv/). From repo root: `uv sync`.
 
 *(If `uv sync` fails in the IDE due to cache permissions, run it in your system terminal.)*
+
+## Current project status (latest code path)
+
+- The most up-to-date training setup is the curriculum environment in `variations/flappy/`.
+- Best checkpoints so far:
+  - `experiments/177086914642/model_009765.pt` (80M-step run)
+  - `experiments/177087020156/model_018310.pt` (150M-step run, current best)
+- Base env in `src/flappy_rl/flappy/` is still used and maintained, but the latest curriculum logic lives in `variations/flappy/curriculum.py`.
+- Train latest curriculum setup:
+  - `uv run python -m flappy_rl.train --train.env flappy_curriculum --train.total-timesteps 150000000`
+- Eval latest curriculum checkpoints:
+  - `uv run python -m variations.flappy.run_eval --model experiments/177087020156/model_018310.pt --episodes 50 --no-render`
+  - `uv run python -m variations.flappy.eval_last_checkpoints --run-id 177087020156 --last 5 --episodes 50 --difficulty 1.0`
 
 ## What's in this repo
 
@@ -29,7 +47,7 @@ uv run python -m flappy_rl.train --train.env flappy # train on Flappy (C + rayli
 | **`scripts/eval_all_checkpoints.py`** | Run eval on all main Flappy checkpoints (50 ep each) |
 | **`docs/`** | [env-instructions.md](docs/env-instructions.md), [rl-basics.md](docs/rl-basics.md), [env-checklist.md](docs/env-checklist.md), [blog.md](docs/blog.md) |
 
-## Flappy (C + raylib)
+## Base env (reference)
 
 - **Build:** See [src/flappy_rl/flappy/README.md](src/flappy_rl/flappy/README.md) (raylib, `make`, assets in `resources/flappy/`).
 - **Train:** `uv run python -m flappy_rl.train --train.env flappy` (checkpoints in `experiments/`).
