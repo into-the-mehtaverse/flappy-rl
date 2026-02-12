@@ -50,9 +50,7 @@ class Flappy(pufferlib.PufferEnv):
         )
         self._tick = 0
 
-    def reset(self, seed=None):
-        if seed is None:
-            seed = int(np.random.default_rng().integers(0, 2**31))
+    def reset(self, seed=0):
         binding.vec_reset(self.c_envs, seed)
         self._tick = 0
         return self.observations, []

@@ -11,9 +11,12 @@
 #define PIPE_WIDTH_RATIO 0.15f
 #define BIRD_RADIUS_RATIO 0.025f  /* was 0.03; smaller = more margin through gap */
 #define GAP_HEIGHT_RATIO 0.28f
-#define FIXED_GAP_DEBUG 0       /* 1 = all gaps at same height (debug); 0 = random gap center 0.25–0.75 */
-#define FIXED_GAP_CENTER_Y 0.5f
-#define BIAS_HARD_GAPS 0        /* 1 = sample gap from extremes [0.25,0.35] and [0.65,0.75] only (training); 0 = uniform [0.25,0.75] */
+/* Continuous curriculum: difficulty float in [0, 1] controls gap distribution.
+ *   d  0.00–0.25 : range widens from center-only to full [0.25, 0.75]
+ *   d  0.25–0.55 : full range + increasing extreme-bias (peaks ~45 %)
+ *   d  0.55–0.85 : full range + decreasing extreme-bias
+ *   d  0.85–1.00 : pure uniform [0.25, 0.75]  (matches eval)
+ */
 #define PIPE_SPEED_RATIO 0.006f  /* slower pipes so bird has more time to align; was 0.012 */
 #define FLAP_VEL 0.02f   /* upward velocity per flap; lower = finer control, less overshoot */
 #define GRAVITY 0.0018f
@@ -25,6 +28,7 @@ typedef struct {
     float score;
     float episode_return;
     float episode_length;
+    float difficulty;  /* curriculum difficulty (0.0–1.0) for dashboard */
     float n;
 } Log;
 
@@ -62,14 +66,15 @@ typedef struct {
     int num_pipes;
     int score;
     int step_count;
+    float curriculum_difficulty;  /* 0.0 = fixed center, 1.0 = full uniform */
     Client* client;
 } Flappy;
 
 static void add_log(Flappy* env) {
     env->log.perf = env->score > 0 ? 1.0f : 0.0f;
     env->log.score = (float)env->score;
-    /* episode_return already accumulated each step in c_step */
     env->log.episode_length = (float)env->step_count;
+    env->log.difficulty = env->curriculum_difficulty;
     env->log.n += 1.0f;
 }
 
@@ -88,19 +93,47 @@ static float clampf(float v, float lo, float hi) {
     return v;
 }
 
-/* Only sets gap and scored; caller sets x (recycle uses rightmost+spacing, reset sets start_x+i*spacing) */
+/* Only sets gap and scored; caller sets x. Gap distribution is a smooth
+ * function of curriculum_difficulty (0–1): range widens, extreme-bias
+ * ramps up then back down, ending on pure uniform (= eval distribution). */
 static void spawn_pipe(Flappy* env, int idx) {
-#if FIXED_GAP_DEBUG
-    env->pipes[idx].gap_center_y = FIXED_GAP_CENTER_Y;
-#elif BIAS_HARD_GAPS
-    /* Sample only from extreme bands so policy sees more hard cases */
-    if (rand() % 2 == 0)
-        env->pipes[idx].gap_center_y = 0.25f + (float)(rand() % 11) / 100.0f;  /* [0.25, 0.35] */
-    else
-        env->pipes[idx].gap_center_y = 0.65f + (float)(rand() % 11) / 100.0f;  /* [0.65, 0.75] */
-#else
-    env->pipes[idx].gap_center_y = 0.25f + (float)(rand() % 51) / 100.0f;  /* [0.25, 0.75] */
-#endif
+    float d = env->curriculum_difficulty;
+
+    /* 1. Range expansion: d 0→0.25 widens half-range from 0 to 0.25 */
+    float half_range = (d < 0.25f) ? d : 0.25f;
+    float gap_min = 0.5f - half_range;
+    float gap_max = 0.5f + half_range;
+
+    /* 2. Extreme-bias: smooth hump peaking at d=0.55 (~45 %), zero
+     *    outside [0.25, 0.85] so training ends on pure uniform. */
+    float extreme_prob = 0.0f;
+    if (d > 0.25f && d < 0.85f) {
+        float peak_d = 0.55f;
+        float t;
+        if (d <= peak_d)
+            t = (d - 0.25f) / (peak_d - 0.25f);   /* 0 → 1 rising  */
+        else
+            t = 1.0f - (d - peak_d) / (0.85f - peak_d); /* 1 → 0 falling */
+        extreme_prob = t * 0.45f;  /* peak 45 % extreme sampling */
+    }
+
+    /* 3. Sample gap center */
+    float r = (float)(rand() % 1000) / 1000.0f;
+    if (r < extreme_prob) {
+        /* Extreme band: [0.25, 0.35] or [0.65, 0.75] */
+        if (rand() % 2 == 0)
+            env->pipes[idx].gap_center_y = 0.25f + (float)(rand() % 11) / 100.0f;
+        else
+            env->pipes[idx].gap_center_y = 0.65f + (float)(rand() % 11) / 100.0f;
+    } else {
+        /* Uniform within current range */
+        int steps = (int)((gap_max - gap_min) * 100.0f + 0.5f);
+        if (steps <= 0)
+            env->pipes[idx].gap_center_y = 0.5f;
+        else
+            env->pipes[idx].gap_center_y = gap_min + (float)(rand() % (steps + 1)) / 100.0f;
+    }
+
     env->pipes[idx].gap_height = env->gap_height;
     env->pipes[idx].scored = 0;
 }
@@ -148,29 +181,18 @@ static int collides(Flappy* env, float bx, float by, float br) {
     return 0;
 }
 
-void c_reset(Flappy* env) {
+void c_reset(Flappy* env, float difficulty) {
+    env->curriculum_difficulty = difficulty;
     env->log.episode_return = 0.0f;
     env->bird_y = 0.5f;
     env->bird_vy = 0.0f;
     env->score = 0;
     env->step_count = 0;
     env->num_pipes = 3;
-    /* first pipe at half the previous distance so agent learns to react quickly (like between pipes) */
-    float start_x = (float)env->width * 0.5f;  /* was 0.8: bird at 0.2, so distance 0.6→0.3 */
+    float start_x = (float)env->width * 0.5f;
     for (int i = 0; i < env->num_pipes; i++) {
         env->pipes[i].x = start_x + (float)i * env->width * env->pipe_spacing;
-#if FIXED_GAP_DEBUG
-        env->pipes[i].gap_center_y = FIXED_GAP_CENTER_Y;
-#elif BIAS_HARD_GAPS
-        if (rand() % 2 == 0)
-            env->pipes[i].gap_center_y = 0.25f + (float)(rand() % 11) / 100.0f;
-        else
-            env->pipes[i].gap_center_y = 0.65f + (float)(rand() % 11) / 100.0f;
-#else
-        env->pipes[i].gap_center_y = 0.25f + (float)(rand() % 51) / 100.0f;  /* [0.25, 0.75] */
-#endif
-        env->pipes[i].gap_height = env->gap_height;
-        env->pipes[i].scored = 0;
+        spawn_pipe(env, i);
     }
     compute_observations(env);
 }
@@ -197,7 +219,7 @@ void c_step(Flappy* env) {
         env->terminals[0] = 1;
         env->log.episode_return += env->rewards[0];
         add_log(env);
-        c_reset(env);
+        c_reset(env, env->curriculum_difficulty);
         return;
     }
     /* Collision: pipes */
@@ -206,7 +228,7 @@ void c_step(Flappy* env) {
         env->terminals[0] = 1;
         env->log.episode_return += env->rewards[0];
         add_log(env);
-        c_reset(env);
+        c_reset(env, env->curriculum_difficulty);
         return;
     }
 
@@ -240,7 +262,7 @@ void c_step(Flappy* env) {
         env->terminals[0] = 1;
         env->log.episode_return += env->rewards[0];
         add_log(env);
-        c_reset(env);
+        c_reset(env, env->curriculum_difficulty);
         return;
     }
     env->log.episode_return += env->rewards[0];

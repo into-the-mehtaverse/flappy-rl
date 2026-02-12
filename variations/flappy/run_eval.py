@@ -1,20 +1,20 @@
 """
-Eval Flappy with a trained policy (saved checkpoint). Renders the game or runs headless stats.
-Run from repo root so C code finds resources/flappy/:
+Eval a curriculum-trained Flappy policy. Uses the curriculum C binding at
+difficulty=1.0 (pure uniform [0.25, 0.75] — same distribution as the standard
+eval environment).
 
-  uv run python -m flappy_rl.run_eval_flappy
-  uv run python -m flappy_rl.run_eval_flappy --model experiments/<run_id>/model_000610.pt
+Run from repo root:
 
-  # Numerical eval (no render): N episodes, report pipes passed
-  uv run python -m flappy_rl.run_eval_flappy --episodes 50 --no-render
-
-By default --seed 42 is used, so the same command gives identical stats (reproducible).
-Use --random-seed to pick a different seed each run and verify stats vary.
+  uv run python -m variations.flappy.run_eval
+  uv run python -m variations.flappy.run_eval --model experiments/<run_id>/model_009765.pt
+  uv run python -m variations.flappy.run_eval --episodes 50 --no-render
+  uv run python -m variations.flappy.run_eval --difficulty 0.5   # test at mid-curriculum
 
 Actions are always argmax (greedy). Press ESC in the game window to exit when rendering.
 """
 import argparse
 import glob
+import multiprocessing
 import os
 import time
 
@@ -23,7 +23,7 @@ import torch
 import pufferlib.vector
 import pufferlib.pytorch
 
-from flappy_rl.flappy import flappy_env_creator
+from variations.flappy import curriculum_env_creator
 from flappy_rl.train import FlappyGridPolicy
 
 FPS = 60
@@ -58,7 +58,7 @@ def run_episode(vecenv, policy, device, seed=None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Eval Flappy with a trained policy")
+    parser = argparse.ArgumentParser(description="Eval curriculum-trained Flappy policy")
     parser.add_argument(
         "--model",
         type=str,
@@ -70,7 +70,7 @@ def main():
     parser.add_argument(
         "--random-seed",
         action="store_true",
-        help="Use a random seed for this run (stats will vary between runs)",
+        help="Use a random seed (stats will vary between runs)",
     )
     parser.add_argument(
         "--episodes",
@@ -83,6 +83,12 @@ def main():
         action="store_true",
         help="Run headless (use with --episodes for numerical eval)",
     )
+    parser.add_argument(
+        "--difficulty",
+        type=float,
+        default=1.0,
+        help="Curriculum difficulty for eval (default 1.0 = pure uniform, matching standard env)",
+    )
     args = parser.parse_args()
 
     if args.random_seed:
@@ -94,9 +100,18 @@ def main():
         print("No checkpoint found. Train first or pass --model path/to/model_XXXXXX.pt")
         return
 
+    # Shared difficulty value — fixed for eval (not ramped)
+    difficulty_value = multiprocessing.Value("f", args.difficulty)
+    print(f"Eval difficulty: {args.difficulty:.2f}")
+
     vecenv = pufferlib.vector.make(
-        flappy_env_creator,
-        env_kwargs={"num_envs": 1, "width": 400, "height": 600},
+        curriculum_env_creator,
+        env_kwargs={
+            "num_envs": 1,
+            "width": 400,
+            "height": 600,
+            "curriculum_difficulty_value": difficulty_value,
+        },
         backend=pufferlib.vector.Serial,
         num_envs=1,
         seed=args.seed,
@@ -108,6 +123,9 @@ def main():
     policy.load_state_dict(state_dict, strict=True)
     policy.eval()
 
+    print(f"Checkpoint: {model_path}")
+    print(f"Policy params: {sum(p.numel() for p in policy.parameters()):,}")
+
     if args.episodes > 0:
         # Numerical eval: run N episodes, report pipes passed and length
         scores = []
@@ -116,17 +134,21 @@ def main():
             pipes, length = run_episode(vecenv, policy, args.device, seed=args.seed + ep)
             scores.append(pipes)
             lengths.append(length)
+            if (ep + 1) % 10 == 0:
+                print(f"  [{ep+1}/{args.episodes}] last: {pipes} pipes, {length} steps")
         vecenv.close()
         scores = np.array(scores)
         lengths = np.array(lengths)
-        print(f"Checkpoint: {model_path}")
-        print(f"Episodes:   {args.episodes}")
+        print(f"\n--- Results ({args.episodes} episodes, difficulty={args.difficulty:.2f}) ---")
         print(f"Pipes passed — mean: {scores.mean():.2f}, std: {scores.std():.2f}, min: {scores.min()}, max: {scores.max()}")
-        print(f"Length      — mean: {lengths.mean():.1f}, std: {lengths.std():.1f}, min: {lengths.min()}, max: {lengths.max()}")
+        print(f"Length       — mean: {lengths.mean():.1f}, std: {lengths.std():.1f}, min: {lengths.min()}, max: {lengths.max()}")
         return
 
+    # Interactive render mode
     episode_num = 0
     obs, info = vecenv.reset(seed=args.seed + episode_num)
+    total_pipes = 0
+    ep_pipes = 0
     with torch.no_grad():
         while True:
             if not args.no_render:
@@ -135,9 +157,15 @@ def main():
             logits, _ = policy.forward_eval(ob)
             action = logits.argmax(dim=-1).cpu().numpy().reshape(vecenv.action_space.shape)
             obs, rewards, terms, truncs, info = vecenv.step(action)
+            r = float(rewards.flat[0])
+            if r >= 1.0:
+                ep_pipes += 1
             time.sleep(1 / FPS if not args.no_render else 0)
             if terms.any() or truncs.any():
+                total_pipes += ep_pipes
                 episode_num += 1
+                print(f"Episode {episode_num}: {ep_pipes} pipes")
+                ep_pipes = 0
                 obs, _ = vecenv.reset(seed=args.seed + episode_num)
 
 

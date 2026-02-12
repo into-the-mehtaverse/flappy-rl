@@ -8,6 +8,7 @@ Usage:
 """
 
 import argparse
+import multiprocessing
 import torch
 import pufferlib
 import pufferlib.vector
@@ -77,7 +78,6 @@ def main():
         del sys.argv[i]
         if i < len(sys.argv):
             del sys.argv[i]  # value
-
     # Load default PufferLib config (train + vec sections)
     args = pufferl.load_config("default")
     args["train"]["env"] = env_name
@@ -99,10 +99,24 @@ def main():
     if env_name == "flappy":
         from flappy_rl.flappy import flappy_env_creator
 
-        # One Flappy(num_envs=1) per vector slot; pass the function (picklable), not its return value
         vecenv = pufferlib.vector.make(
             flappy_env_creator,
             env_kwargs={"num_envs": 1, "width": 400, "height": 600},
+            **vec_kwargs,
+        )
+    elif env_name == "flappy_curriculum":
+        from variations.flappy import curriculum_env_creator
+        from variations.flappy.curriculum import compute_difficulty
+
+        curriculum_difficulty_value = multiprocessing.Value("f", 0.0)
+        vecenv = pufferlib.vector.make(
+            curriculum_env_creator,
+            env_kwargs={
+                "num_envs": 1,
+                "width": 400,
+                "height": 600,
+                "curriculum_difficulty_value": curriculum_difficulty_value,
+            },
             **vec_kwargs,
         )
     else:
@@ -120,7 +134,19 @@ def main():
 
     trainer = pufferl.PuffeRL(args["train"], vecenv, policy)
 
+    total_ts = args["train"]["total_timesteps"]
+    initial_lr = args["train"]["learning_rate"]
+    final_lr = initial_lr / 6  # e.g. 3e-4 → 5e-5
+
     while trainer.epoch < trainer.total_epochs:
+        if env_name == "flappy_curriculum":
+            frac = min(1.0, trainer.global_step / max(1, total_ts))
+            curriculum_difficulty_value.value = compute_difficulty(trainer.global_step, total_ts)
+            # Linear LR decay: avoids overwriting earlier skills as difficulty increases
+            lr = initial_lr + (final_lr - initial_lr) * frac
+            if hasattr(trainer, "optimizer"):
+                for pg in trainer.optimizer.param_groups:
+                    pg["lr"] = lr
         trainer.evaluate()
         trainer.train()
         trainer.print_dashboard()

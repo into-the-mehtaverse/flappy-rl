@@ -43,6 +43,7 @@ Thumbs.db
 
 # PufferLib / RL (checkpoints, logs, experiment outputs)
 experiments/
+curriculum_phase.txt
 *.pt
 wandb/
 .neptune/
