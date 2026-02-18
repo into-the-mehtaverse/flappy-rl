@@ -43,7 +43,7 @@ This is an inspired environment design, not an exact recreation.
 
 - Starts at `100`.
 - Depletes by `oxygen_decay_per_step = 0.12`.
-- Picking oxygen capsule restores `+35` (capped at 100).
+- Picking oxygen capsule restores `+20` (capped at 100).
 - Capsules are sparse and seed-controlled.
 
 ### Dig/clear logic
